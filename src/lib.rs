@@ -16,7 +16,7 @@
 //!
 //! - On Windows a win32 event loop must be running on the thread. It doesn't need to be the main thread but you have to create the global hotkey manager on the same thread as the event loop.
 //! - On macOS, an event loop must be running on the main thread so you also need to create the global hotkey manager on the main thread.
-//! - On macOS, a hotkey registered with [`GlobalHotKeyManager::register`] succeeds even when another app holds it exclusively, and then never fires. Use [`GlobalHotKeyManager::register_with_options`] with [`RegisterOptions::exclusive`] to get [`Error::AlreadyRegistered`] instead. The catch is that other apps can no longer receive that hotkey. Windows and X11 always refuse a hotkey that is already taken, so the option has no effect there.
+//! - On macOS, a hotkey registered with [`GlobalHotKeyManager::register`] succeeds even when another app holds it exclusively, and then doesn't fire while that app holds it. Use [`GlobalHotKeyManager::register_with_options`] with [`RegisterOptions::exclusive`] to get [`Error::AlreadyRegistered`] instead. The catch is that other apps can no longer receive that hotkey. Windows and X11 always refuse a hotkey that is already taken, so the option has no effect there.
 //!
 //! # Example
 //!
@@ -54,8 +54,6 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use once_cell::sync::{Lazy, OnceCell};
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-mod carbon;
 mod error;
 pub mod hotkey;
 mod platform_impl;
@@ -154,7 +152,8 @@ pub struct RegisterOptions {
     ///
     /// - **macOS:** registers with `kEventHotKeyExclusive`. If another process already holds the
     ///   hotkey exclusively, registering fails with [`Error::AlreadyRegistered`]. Without this
-    ///   option the registration succeeds even then, but this process never receives the hotkey.
+    ///   option the registration succeeds even then, but this process doesn't receive the hotkey
+    ///   until the exclusive holder releases it.
     ///   The trade-off is that an exclusive registration also stops every non-exclusive
     ///   registration of the same hotkey, in any process, from receiving events.
     ///   Media keys are not registered with Carbon, so this has no effect on them.

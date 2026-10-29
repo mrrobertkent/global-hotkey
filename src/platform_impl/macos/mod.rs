@@ -9,7 +9,6 @@ use std::{
 };
 
 use crate::{
-    carbon::{check_register_status, event_hotkey_options},
     hotkey::HotKey,
     platform_impl::platform::ffi::{
         kCFAllocatorDefault, kCFRunLoopCommonModes, CFMachPortCreateRunLoopSource,
@@ -21,14 +20,34 @@ use crate::{
 };
 
 use self::ffi::{
-    kEventClassKeyboard, kEventHotKeyPressed, kEventHotKeyReleased, kEventParamDirectObject, noErr,
-    typeEventHotKeyID, CFMachPortInvalidate, CFMachPortRef, CFRelease, CFRunLoopRemoveSource,
-    CFRunLoopSourceRef, EventHandlerCallRef, EventHandlerRef, EventHotKeyID, EventHotKeyRef,
-    EventRef, EventTypeSpec, GetApplicationEventTarget, GetEventKind, GetEventParameter,
-    InstallEventHandler, OSStatus, RegisterEventHotKey, RemoveEventHandler, UnregisterEventHotKey,
+    eventHotKeyExistsErr, kEventClassKeyboard, kEventHotKeyExclusive, kEventHotKeyNoOptions,
+    kEventHotKeyPressed, kEventHotKeyReleased, kEventParamDirectObject, noErr, typeEventHotKeyID,
+    CFMachPortInvalidate, CFMachPortRef, CFRelease, CFRunLoopRemoveSource, CFRunLoopSourceRef,
+    EventHandlerCallRef, EventHandlerRef, EventHotKeyID, EventHotKeyRef, EventRef, EventTypeSpec,
+    GetApplicationEventTarget, GetEventKind, GetEventParameter, InstallEventHandler, OSStatus,
+    OptionBits, RegisterEventHotKey, RemoveEventHandler, UnregisterEventHotKey,
 };
 
 mod ffi;
+
+fn event_hotkey_options(options: RegisterOptions) -> OptionBits {
+    if options.exclusive {
+        kEventHotKeyExclusive
+    } else {
+        kEventHotKeyNoOptions
+    }
+}
+
+fn check_register_status(status: OSStatus, hotkey: HotKey) -> crate::Result<()> {
+    match status {
+        s if s == noErr as OSStatus => Ok(()),
+        s if s == eventHotKeyExistsErr => Err(crate::Error::AlreadyRegistered(hotkey)),
+        status => Err(crate::Error::FailedToRegister(format!(
+            "RegisterEventHotKey failed for {} (OSStatus {})",
+            hotkey.key, status
+        ))),
+    }
+}
 
 pub struct GlobalHotKeyManager {
     event_handler_ptr: EventHandlerRef,
@@ -540,4 +559,50 @@ fn is_media_key(code: Code) -> bool {
             | Code::MediaFastForward
             | Code::MediaRewind
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Error;
+
+    fn hotkey() -> HotKey {
+        HotKey::new(None, Code::KeyD)
+    }
+
+    #[test]
+    fn default_options_register_shared() {
+        assert_eq!(
+            event_hotkey_options(RegisterOptions::default()),
+            kEventHotKeyNoOptions
+        );
+    }
+
+    #[test]
+    fn exclusive_option_sets_the_exclusive_flag() {
+        let options = RegisterOptions::new().exclusive(true);
+        assert_eq!(event_hotkey_options(options), kEventHotKeyExclusive);
+    }
+
+    #[test]
+    fn no_err_status_registers() {
+        assert!(check_register_status(0, hotkey()).is_ok());
+    }
+
+    #[test]
+    fn hotkey_exists_status_is_already_registered() {
+        let err = check_register_status(-9878, hotkey()).unwrap_err();
+        assert!(matches!(err, Error::AlreadyRegistered(h) if h == hotkey()));
+    }
+
+    #[test]
+    fn other_statuses_fail_with_the_os_status_in_the_message() {
+        match check_register_status(-50, hotkey()).unwrap_err() {
+            Error::FailedToRegister(msg) => {
+                assert!(msg.contains("-50"), "{msg}");
+                assert!(msg.contains("KeyD"), "{msg}");
+            }
+            other => panic!("expected FailedToRegister, got {other:?}"),
+        }
+    }
 }
