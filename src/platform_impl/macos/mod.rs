@@ -9,6 +9,7 @@ use std::{
 };
 
 use crate::{
+    carbon::{check_register_status, event_hotkey_options},
     hotkey::HotKey,
     platform_impl::platform::ffi::{
         kCFAllocatorDefault, kCFRunLoopCommonModes, CFMachPortCreateRunLoopSource,
@@ -16,7 +17,7 @@ use crate::{
         CGEventTapEnable, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
         CGEventTapProxy, CGEventType,
     },
-    CGEventMaskBit, GlobalHotKeyEvent,
+    CGEventMaskBit, GlobalHotKeyEvent, RegisterOptions,
 };
 
 use self::ffi::{
@@ -81,6 +82,14 @@ impl GlobalHotKeyManager {
     }
 
     pub fn register(&self, hotkey: HotKey) -> crate::Result<()> {
+        self.register_with_options(hotkey, RegisterOptions::default())
+    }
+
+    pub fn register_with_options(
+        &self,
+        hotkey: HotKey,
+        options: RegisterOptions,
+    ) -> crate::Result<()> {
         let mut mods: u32 = 0;
         if hotkey.mods.contains(Modifiers::SHIFT) {
             mods |= 512;
@@ -119,16 +128,11 @@ impl GlobalHotKeyManager {
                     mods,
                     hotkey_id,
                     GetApplicationEventTarget(),
-                    0,
+                    event_hotkey_options(options),
                     &mut hotkey_ref,
                 );
 
-                if result != noErr as _ {
-                    return Err(crate::Error::FailedToRegister(format!(
-                        "RegisterEventHotKey failed for {}",
-                        hotkey.key
-                    )));
-                }
+                check_register_status(result, hotkey)?;
 
                 hotkey_ref
             };
